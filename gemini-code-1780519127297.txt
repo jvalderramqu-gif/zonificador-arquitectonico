@@ -1,0 +1,6 @@
+streamlit==1.32.0
+streamlit-drawable-canvas==0.9.3
+shapely==2.0.3
+pillow==10.2.0
+numpy==1.26.4
+plotly==5.19.0
