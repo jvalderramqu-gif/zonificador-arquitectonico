@@ -14,13 +14,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    h1, h2, h3 { color: #2C3E50; font-family: 'Helvetica Neue', Arial, sans-serif; }
-    </style>
-    """, unsafe_allow_html=True)
-
 st.title("📐 Zonificador Arquitectónico Esquemático")
 st.caption("Herramienta académica para el análisis de partido y zonificación preliminar.")
 
@@ -80,49 +73,55 @@ with col_canvas:
         width=canvas_width,
         drawing_mode="polygon",
         update_streamlit=True,
-        key="canvas",
+        key="canvas_zonificador",
     )
 
-if canvas_result.json_data is not None:
-    objetos = canvas_result.json_data["objects"]
+# Procesamiento de geometrías
+if canvas_result and canvas_result.json_data is not None:
+    objetos = canvas_result.json_data.get("objects", [])
     zonas_temporales = []
     
     for i, obj in enumerate(objetos):
-        if obj["type"] == "path":
+        if obj.get("type") == "path" and "path" in obj:
             path = obj["path"]
             coords = []
             for comando in path:
-                if comando[0] in ['M', 'L']:
+                if comando[0] in ['M', 'L'] and len(comando) >= 3:
                     coords.append((comando[1], comando[2]))
             
             if len(coords) >= 3:
-                poly = make_valid(sg.Polygon(coords))
-                if i == 0 and modo_dibujo == "Dibujar Límite del Terreno":
-                    st.session_state.terreno_geom = poly
-                else:
-                    zonas_temporales.append(poly)
+                try:
+                    poly = make_valid(sg.Polygon(coords))
+                    if i == 0 and modo_dibujo == "Dibujar Límite del Terreno":
+                        st.session_state.terreno_geom = poly
+                    else:
+                        zonas_temporales.append(poly)
+                except:
+                    pass
 
-    if st.session_state.terreno_geom:
+    if st.session_state.terreno_geom and not st.session_state.terreno_geom.is_empty:
         area_pixeles_terreno = st.session_state.terreno_geom.area
         factor_escala = area_real_terreno / area_pixeles_terreno if area_pixeles_terreno > 0 else 1.0
         
         st.session_state.zonas = []
         contador = 1
         for poly in zonas_temporales:
-            zona_recortada = poly.intersection(st.session_state.terreno_geom)
-            area_zona_real = zona_recortada.area * factor_escala
-            porcentaje = (area_zona_real / area_real_terreno) * 100
-            
-            st.session_state.zonas.append({
-                "id": contador,
-                "nombre": f"{nombre_zona} {contador}" if len(zonas_temporales) > 1 else nombre_zona,
-                "subzona": subzona,
-                "area": area_zona_real,
-                "porcentaje": porcentaje,
-                "color": color_zona,
-                "geometria": zona_recortada
-            })
-            contador += 1
+            if not poly.is_empty:
+                zona_recortada = poly.intersection(st.session_state.terreno_geom)
+                if not zona_recortada.is_empty:
+                    area_zona_real = zona_recortada.area * factor_escala
+                    porcentaje = (area_zona_real / area_real_terreno) * 100
+                    
+                    st.session_state.zonas.append({
+                        "id": contador,
+                        "nombre": f"{nombre_zona} {contador}" if len(zonas_temporales) > 1 else nombre_zona,
+                        "subzona": subzona,
+                        "area": area_zona_real,
+                        "porcentaje": porcentaje,
+                        "color": color_zona,
+                        "geometria": zona_recortada
+                    })
+                    contador += 1
 
 with col_data:
     st.subheader("Cuadro de Áreas")
@@ -143,29 +142,35 @@ with col_data:
 st.markdown("---")
 st.header("4. Lámina Arquitectónica Esquemática")
 
-if st.session_state.terreno_geom:
+if st.session_state.terreno_geom and not st.session_state.terreno_geom.is_empty:
     fig = go.Figure()
-    x_terr, y_terr = st.session_state.terreno_geom.exterior.xy
-    fig.add_trace(go.Scatter(
-        x=list(x_terr), y=list(y_terr), fill="toself",
-        fillcolor="rgba(240, 240, 240, 0.4)", line=dict(color="#2C3E50", width=3, dash="dash"),
-        name="Terreno"
-    ))
+    try:
+        x_terr, y_terr = st.session_state.terreno_geom.exterior.xy
+        fig.add_trace(go.Scatter(
+            x=list(x_terr), y=list(y_terr), fill="toself",
+            fillcolor="rgba(240, 240, 240, 0.4)", line=dict(color="#2C3E50", width=3, dash="dash"),
+            name="Terreno"
+        ))
+    except:
+        pass
 
     for z in st.session_state.zonas:
         geom = z["geometria"]
         if not geom.is_empty:
             geoms = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
             for g in geoms:
-                x_z, y_z = g.exterior.xy
-                hex_c = z["color"].lstrip('#')
-                rgb = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
-                fig.add_trace(go.Scatter(
-                    x=list(x_z), y=list(y_z), fill="toself",
-                    fillcolor=f"rgba({rgb[0]},{rgb[1]},{rgb[2]}, 0.65)",
-                    line=dict(color=z["color"], width=1.5),
-                    name=f"<b>{z['nombre']}</b><br>{z['area']:,.1f} m² ({z['porcentaje']:.1f}%)"
-                ))
+                try:
+                    x_z, y_z = g.exterior.xy
+                    hex_c = z["color"].lstrip('#')
+                    rgb = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
+                    fig.add_trace(go.Scatter(
+                        x=list(x_z), y=list(y_z), fill="toself",
+                        fillcolor=f"rgba({rgb[0]},{rgb[1]},{rgb[2]}, 0.65)",
+                        line=dict(color=z["color"], width=1.5),
+                        name=f"<b>{z['nombre']}</b><br>{z['area']:,.1f} m² ({z['porcentaje']:.1f}%)"
+                    ))
+                except:
+                    pass
 
     fig.update_layout(
         plot_bgcolor="white", paper_bgcolor="white",
